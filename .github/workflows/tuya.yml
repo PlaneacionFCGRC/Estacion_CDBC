@@ -1,23 +1,5 @@
-name: Tuya Data Fetch
-
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 */2 * * *'
-
-jobs:
-  fetch-data:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install dependencies
-        run: pip install requests
-
-      - name: Fetch Tuya Data
-        env:
+name: Fetch and Save Tuya Data
+env:
           CLIENT_ID: ${{ secrets.TUYA_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.TUYA_CLIENT_SECRET }}
         run: |
@@ -26,17 +8,21 @@ jobs:
           import time
           import hashlib
           import hmac
+          import csv
+          import os
+          from datetime import datetime
 
           client_id = "${CLIENT_ID}"
           secret = "${CLIENT_SECRET}"
           endpoint = "https://openapi.tuyaus.com"
+          device_id = "ebdfd6827dd4b8baadoxvu"
 
           def sha256(body=""):
               return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
           def get_sign(method, path, timestamp, access_token=""):
               body_hash = sha256("")
-              string_to_sign = method + "\n" + body_hash + "\n\n" + path
+              string_to_sign = method + "\\n" + body_hash + "\\n\\n" + path
               message = client_id + access_token + timestamp + string_to_sign
               return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest().upper()
 
@@ -52,15 +38,15 @@ jobs:
               "sign": sign
           }
 
-          response = requests.get(endpoint + path, headers=headers)
-          print("TOKEN RESPONSE:", response.text)
+          token_response = requests.get(endpoint + path, headers=headers).json()
 
-          data = response.json()
-          access_token = data["result"]["access_token"]
+          if not token_response.get("success"):
+              print("Error token:", token_response)
+              exit(1)
 
-          # DEVICE DATA
-          device_id = "ebdfd6827dd4b8baadoxvu"
+          access_token = token_response["result"]["access_token"]
 
+          # DEVICE
           path2 = f"/v2.0/cloud/thing/{device_id}/shadow/properties"
           t2 = str(int(time.time() * 1000))
           sign2 = get_sign("GET", path2, t2, access_token)
@@ -73,7 +59,38 @@ jobs:
               "sign": sign2
           }
 
-          response2 = requests.get(endpoint + path2, headers=headers2)
-          print("DEVICE RESPONSE:", response2.text)
+          device_response = requests.get(endpoint + path2, headers=headers2).json()
 
+          if not device_response.get("success"):
+              print("Error datos:", device_response)
+              exit(1)
+
+          props = device_response["result"]["properties"]
+          data_dict = {p["code"]: p["value"] for p in props}
+
+          fila = {
+              "fecha_utc": datetime.utcnow(),
+              "temp_int_c": data_dict.get("temp_current", 0)/10,
+              "hum_int_pct": data_dict.get("humidity_value", 0),
+              "temp_ext_c": data_dict.get("temp_current_external", 0)/10,
+              "hum_ext_pct": data_dict.get("humidity_outdoor", 0),
+              "presion_hpa": data_dict.get("atmospheric_pressture", 0),
+              "viento_avg": data_dict.get("windspeed_avg", 0),
+              "viento_gust": data_dict.get("windspeed_gust", 0),
+              "uv_index": data_dict.get("uv_index", 0),
+              "lluvia_1h": data_dict.get("rain_1h", 0),
+              "lluvia_24h": data_dict.get("rain_24h", 0),
+              "radiacion": data_dict.get("Light_intensity", 0)
+          }
+
+          archivo = "datos.csv"
+          existe = os.path.isfile(archivo)
+
+          with open(archivo, "a", newline="") as f:
+              writer = csv.DictWriter(f, fieldnames=fila.keys())
+              if not existe:
+                  writer.writeheader()
+              writer.writerow(fila)
+
+          print("Fila guardada:", fila)
           EOF
