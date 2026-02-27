@@ -1,23 +1,5 @@
-name: Tuya Data Fetch
-
-on:
-  schedule:
-    - cron: '0 */2 * * *'
-  workflow_dispatch:
-
-jobs:
-  fetch-data:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install dependencies
-        run: pip install requests
-
-      - name: Fetch Tuya Data
-        env:
+name: Fetch Tuya Data
+env:
           CLIENT_ID: ${{ secrets.TUYA_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.TUYA_CLIENT_SECRET }}
         run: |
@@ -40,6 +22,7 @@ jobs:
               message = client_id + access_token + timestamp + string_to_sign
               return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest().upper()
 
+          # -------- TOKEN --------
           path = "/v1.0/token?grant_type=1"
           t = str(int(time.time() * 1000))
           sign = get_sign("GET", path, t)
@@ -53,4 +36,26 @@ jobs:
 
           response = requests.get(endpoint + path, headers=headers)
           print("TOKEN RESPONSE:", response.text)
+
+          data = response.json()
+          access_token = data["result"]["access_token"]
+
+          # -------- DEVICE DATA --------
+          device_id = "ebdfd6827dd4b8baadoxvu"
+
+          path2 = f"/v2.0/cloud/thing/{device_id}/shadow/properties"
+          t2 = str(int(time.time() * 1000))
+          sign2 = get_sign("GET", path2, t2, access_token)
+
+          headers2 = {
+              "client_id": client_id,
+              "access_token": access_token,
+              "t": t2,
+              "sign_method": "HMAC-SHA256",
+              "sign": sign2
+          }
+
+          response2 = requests.get(endpoint + path2, headers=headers2)
+          print("DEVICE RESPONSE:", response2.text)
+
           EOF
