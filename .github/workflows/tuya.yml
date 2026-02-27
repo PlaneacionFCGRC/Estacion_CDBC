@@ -50,7 +50,7 @@ jobs:
               message = client_id + access_token + timestamp + string_to_sign
               return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest().upper()
 
-          # TOKEN
+          # ----- TOKEN -----
           path = "/v1.0/token?grant_type=1"
           t = str(int(time.time() * 1000))
           sign = get_sign("GET", path, t)
@@ -70,7 +70,7 @@ jobs:
 
           access_token = token_response["result"]["access_token"]
 
-          # DEVICE DATA
+          # ----- DEVICE DATA -----
           path2 = f"/v2.0/cloud/thing/{device_id}/shadow/properties"
           t2 = str(int(time.time() * 1000))
           sign2 = get_sign("GET", path2, t2, access_token)
@@ -92,31 +92,37 @@ jobs:
           props = device_response["result"]["properties"]
           data_dict = {p["code"]: p["value"] for p in props}
 
+          # ----- CSV ESTRUCTURA FIJA -----
+          fieldnames = [
+              "fecha_utc",
+              "temp_int_c",
+              "hum_int_pct",
+              "temp_ext_c",
+              "hum_ext_pct",
+              "uv_index",
+              "lluvia_24h"
+          ]
+
           fila = {
-              "fecha_utc": datetime.utcnow(),
-              "temp_int_c": data_dict.get("temp_current", 0)/10,
+              "fecha_utc": datetime.utcnow().isoformat(),
+              "temp_int_c": data_dict.get("temp_current", 0) / 10,
               "hum_int_pct": data_dict.get("humidity_value", 0),
-              "temp_ext_c": data_dict.get("temp_current_external", 0)/10,
+              "temp_ext_c": data_dict.get("temp_current_external", 0) / 10,
               "hum_ext_pct": data_dict.get("humidity_outdoor", 0),
-              "presion_hpa": data_dict.get("atmospheric_pressture", 0),
-              "viento_avg": data_dict.get("windspeed_avg", 0),
-              "viento_gust": data_dict.get("windspeed_gust", 0),
-              "uv_index": data_dict.get("uv_index", 0),
-              "lluvia_1h": data_dict.get("rain_1h", 0),
-              "lluvia_24h": data_dict.get("rain_24h", 0),
-              "radiacion": data_dict.get("Light_intensity", 0)
+              "uv_index": data_dict.get("uv_index", 0) / 100,
+              "lluvia_24h": data_dict.get("rain_24h", 0)
           }
 
           archivo = "datos.csv"
           existe = os.path.isfile(archivo)
 
           with open(archivo, "a", newline="") as f:
-              writer = csv.DictWriter(f, fieldnames=fila.keys())
+              writer = csv.DictWriter(f, fieldnames=fieldnames)
               if not existe:
                   writer.writeheader()
               writer.writerow(fila)
 
-          print("Fila guardada:", fila)
+          print("Fila guardada correctamente:", fila)
           EOF
 
       - name: Commit CSV
