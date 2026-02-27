@@ -1,39 +1,56 @@
-run: |
-  python <<EOF
-  import requests, time, hmac, hashlib
+name: Tuya Data Fetch
 
-  client_id = "${CLIENT_ID}"
-  secret = "${CLIENT_SECRET}"
-  endpoint = "https://openapi.tuyaus.com"
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
-  def sha256(data=""):
-      return hashlib.sha256(data.encode()).hexdigest()
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
 
-  def sign(method, path, timestamp, access_token=""):
-      body_hash = sha256("")
-      string_to_sign = f"{method}\n{body_hash}\n\n{path}"
-      message = client_id + access_token + timestamp + string_to_sign
-      return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest().upper()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-  # --- TOKEN ---
-  path = "/v1.0/token?grant_type=1"
-  t = str(int(time.time()*1000))
+      - name: Install dependencies
+        run: pip install requests
 
-  headers = {
-      "client_id": client_id,
-      "sign": sign("GET", path, t),
-      "t": t,
-      "sign_method": "HMAC-SHA256"
-  }
+      - name: Fetch Tuya Data
+        env:
+          CLIENT_ID: ${{ secrets.TUYA_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.TUYA_CLIENT_SECRET }}
+        run: |
+          python <<EOF
+          import requests
+          import time
+          import hashlib
+          import hmac
 
-  r = requests.get(endpoint + path, headers=headers)
-  print(r.text)
-  data = r.json()
+          client_id = "${CLIENT_ID}"
+          secret = "${CLIENT_SECRET}"
+          endpoint = "https://openapi.tuyaus.com"
 
-  if not data.get("success"):
-      raise Exception(data)
+          def sha256(body=""):
+              return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
-  access_token = data["result"]["access_token"]
+          def get_sign(method, path, timestamp, access_token=""):
+              body_hash = sha256("")
+              string_to_sign = method + "\n" + body_hash + "\n\n" + path
+              message = client_id + access_token + timestamp + string_to_sign
+              return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest().upper()
 
-  print("TOKEN OK:", access_token)
-  EOF
+          path = "/v1.0/token?grant_type=1"
+          t = str(int(time.time() * 1000))
+          sign = get_sign("GET", path, t)
+
+          headers = {
+              "client_id": client_id,
+              "t": t,
+              "sign_method": "HMAC-SHA256",
+              "sign": sign
+          }
+
+          response = requests.get(endpoint + path, headers=headers)
+          print("TOKEN RESPONSE:", response.text)
+          EOF
