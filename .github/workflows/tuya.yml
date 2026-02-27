@@ -1,0 +1,87 @@
+name: Tuya Data Fetch
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch Tuya Data
+        env:
+          CLIENT_ID: ${{ secrets.TUYA_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.TUYA_CLIENT_SECRET }}
+        run: |
+          python <<EOF
+          import requests
+          import time
+          import hmac
+          import hashlib
+          import csv
+
+          client_id = "${CLIENT_ID}"
+          secret = "${CLIENT_SECRET}"
+
+          timestamp = str(int(time.time() * 1000))
+
+          sign_str = client_id + timestamp
+          sign = hmac.new(secret.encode(), sign_str.encode(), hashlib.sha256).hexdigest().upper()
+
+          headers = {
+              "client_id": client_id,
+              "sign": sign,
+              "t": timestamp,
+              "sign_method": "HMAC-SHA256"
+          }
+
+          token_url = "https://openapi.tuyaus.com/v1.0/token?grant_type=1"
+          response = requests.get(token_url, headers=headers)
+          data = response.json()
+
+          if not data.get("success"):
+              print("Error token:", data)
+              exit(1)
+
+          access_token = data["result"]["access_token"]
+
+          device_id = "ebdfd6827dd4b8baadoxvu"
+
+          timestamp2 = str(int(time.time() * 1000))
+          sign_str2 = client_id + access_token + timestamp2
+          sign2 = hmac.new(secret.encode(), sign_str2.encode(), hashlib.sha256).hexdigest().upper()
+
+          headers2 = {
+              "client_id": client_id,
+              "access_token": access_token,
+              "sign": sign2,
+              "t": timestamp2,
+              "sign_method": "HMAC-SHA256"
+          }
+
+          device_url = f"https://openapi.tuyaus.com/v2.0/cloud/thing/{device_id}/shadow/properties"
+          response2 = requests.get(device_url, headers=headers2)
+          device_data = response2.json()
+
+          with open("datos.csv", "w", newline="") as f:
+              writer = csv.writer(f)
+              writer.writerow(["timestamp", "data"])
+              writer.writerow([timestamp2, device_data])
+
+          EOF
+
+      - name: Commit file
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add datos.csv
+          git commit -m "Actualizar datos" || echo "Sin cambios"
+          git push
